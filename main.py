@@ -3,8 +3,31 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+
 def lambda_init_fn(depth):
     return 0.8 - 0.6 * math.exp(-0.3 * depth)
+
+class RotaryEmbedding(nn.Module):
+    def __init__(self, dim: int):
+        super().__init__()
+        self.dim = dim
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
+        self.register_buffer("inv_freq", inv_freq)
+
+    def forward(self, max_seq_len: int, *, device: torch.device):
+        seq = torch.arange(max_seq_len, device=device)
+        freqs = torch.einsum("i,j->ij", seq, self.inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        return emb.cos(), emb.sin()
+
+def rotate_half(x):
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat((-x2, x1), dim=-1)
+
+def apply_rotary_pos_emb(q, k, cos, sin):
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
 
 class RMSNorm(nn.Module):
     def __init__(self, dim: int, eps: float = 1e-6):
@@ -41,12 +64,19 @@ class DifferentialAttention(nn.Module):
         self.lambda_q2 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0,std=0.1))
         self.lambda_k1 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0,std=0.1))
         self.lambda_k2 = nn.Parameter(torch.zeros(self.head_dim, dtype=torch.float32).normal_(mean=0,std=0.1))
-        
+        self.rotary_emb = RotaryEmbedding(self.head_dim * 2)
 
     def forward(self, x):
         lambda_init = lambda_init_fn(self.depth)
-        Q1, Q2 = self.Q(x).chunk(2, dim=-1)
-        K1, K2 = self.K(x).chunk(2, dim=-1)
+        Q = self.Q(x)
+        K = self.K(x)
+
+        seq_len = x.shape[1]
+        cos, sin = self.rotary_emb(seq_len, device=x.device)
+        Q, K = apply_rotary_pos_emb(Q, K, cos, sin)
+    
+        Q1, Q2 = Q.chunk(2, dim=-1)
+        K1, K2 = K.chunk(2, dim=-1)
         V = self.V(x)
         A1 = Q1 @ K1.transpose(-2, -1) * self.scale
         A2 = Q2 @ K2.transpose(-2, -1) * self.scale
