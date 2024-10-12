@@ -103,8 +103,8 @@ class DifferentialTransformer(nn.Module):
         super().__init__()
         self.vocab_size = vocab_size
         self.layers = nn.ModuleList([
-            MultiHeadDifferentialAttention(dim, heads, depth)
-            for _ in range(depth)
+            MultiHeadDifferentialAttention(dim, heads, depth_idx)
+            for depth_idx in range(depth)
         ])
         self.ln1 = RMSNorm(dim)
         self.ln2 = RMSNorm(dim)
