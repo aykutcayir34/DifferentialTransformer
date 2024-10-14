@@ -82,7 +82,7 @@ class DifferentialAttention(nn.Module):
         A2 = Q2 @ K2.transpose(-2, -1) * self.scale
         lambda_1 = torch.exp(torch.sum(self.lambda_q1 * self.lambda_k1, dim=-1).float()).type_as(Q1)
         lambda_2 = torch.exp(torch.sum(self.lambda_q2 * self.lambda_k2, dim=-1).float()).type_as(Q2)
-        lambda_ = lambda_1 + lambda_2 + lambda_init
+        lambda_ = lambda_1 - lambda_2 + lambda_init
         return (F.softmax(A1, dim=-1)  - lambda_ * F.softmax(A2, dim=-1)) @ V
 
 class MultiHeadDifferentialAttention(nn.Module):
